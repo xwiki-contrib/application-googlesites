@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<xwikidoc>
+  <web>GoogleSites</web>
+  <name>SiteStats</name>
+  <language/>
+  <defaultLanguage/>
+  <translation>0</translation>
+  <parent>GoogleSites.WebHome</parent>
+  <creator>xwiki:XWiki.Admin</creator>
+  <author>xwiki:XWiki.Admin</author>
+  <customClass/>
+  <contentAuthor>xwiki:XWiki.Admin</contentAuthor>
+  <creationDate>1420066800000</creationDate>
+  <date>1420066800000</date>
+  <contentUpdateDate>1420066800000</contentUpdateDate>
+  <version>1.1</version>
+  <title>Site Statistics</title>
+  <defaultTemplate/>
+  <validationScript/>
+  <comment/>
+  <minorEdit>false</minorEdit>
+  <syntaxId>xwiki/2.1</syntaxId>
+  <hidden>true</hidden>
+  <content>{{velocity}}
+#set($import = $xwiki.parseGroovyFromPage("GoogleSites.Groovy"))
+#set($ok = $import.init($xwiki, $xcontext, $doc))
+#if($request.site)
+== Importable Items ==
+
+|= Item Type |= Number of items
+  #set($list = ["attachment", "webpage", "webattachment"])
+  #foreach($kind in $list)
+| [[$kind&gt;&gt;||queryString="site=${request.site}&amp;kind=${kind}"]] | $import.getEntries($request.site, $kind, $xwiki.null, 1, 1000).size()
+  #end 
+  
+== Non-importable items ==  
+
+|= Item Type |= Number of items
+  #set($list = ["announcement", "announcementspage", "comment", 
+                     "filecabinet", "listitem", "listpage"])
+  #foreach($kind in $list)
+| [[$kind&gt;&gt;||queryString="site=${request.site}&amp;kind=${kind}"]] | $import.getEntries($request.site, $kind, $xwiki.null, 0, 1000).size()
+  #end 
+
+#if($request.kind)
+== Details ==
+
+|= ID |= Name |= URL |= Parent Page
+#foreach($entry in $import.getEntries($request.site, $request.kind, $xwiki.null, 1, 1000))
+| $entry.id | $!entry.getTitle().getPlainText() | $!entry.getLink("alternate", $xwiki.null).getHref() | $!entry.getParentLink().getHref()
+
+#end
+#end
+#else
+ No site has been chosen
+#end
+
+Debug: $import.debugStr
+{{/velocity}}</content>
+</xwikidoc>

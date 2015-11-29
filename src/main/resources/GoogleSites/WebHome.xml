@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<xwikidoc>
+  <web>GoogleSites</web>
+  <name>WebHome</name>
+  <language/>
+  <defaultLanguage/>
+  <translation>0</translation>
+  <parent>Main.WebHome</parent>
+  <creator>xwiki:XWiki.Admin</creator>
+  <author>xwiki:XWiki.Admin</author>
+  <customClass/>
+  <contentAuthor>xwiki:XWiki.Admin</contentAuthor>
+  <creationDate>1420066800000</creationDate>
+  <date>1420066800000</date>
+  <contentUpdateDate>1420066800000</contentUpdateDate>
+  <version>1.1</version>
+  <title>Google Sites Import Tool</title>
+  <defaultTemplate/>
+  <validationScript/>
+  <comment/>
+  <minorEdit>false</minorEdit>
+  <syntaxId>xwiki/2.1</syntaxId>
+  <hidden>true</hidden>
+  <content>{{velocity}}
+ #set($import = $xwiki.parseGroovyFromPage("GoogleSites.Groovy"))
+ #set($ok = $import.init($xwiki, $xcontext, $doc))
+ #foreach($site in $import.getSites())
+ == Site: ${site.getSiteName().getValue()} ==
+  #set($siteName = $site.getSiteName().getValue())
+  #set($siteDisplayName = $site.getTitle().getPlainText())
+* [[Site preview&gt;&gt;SiteStats||queryString="site=${siteName}"]]
+* [[Import pages&gt;&gt;ImportPages||queryString="site=${siteName}"]]
+* [[Import attachments&gt;&gt;ImportAttachments||queryString="site=${siteName}"]]
+#*
+* [[View pages&gt;&gt;Import||queryString="site=${siteName}&amp;pages=1"]]
+* [[View attachments&gt;&gt;Import||queryString="site=${siteName}&amp;attachments=1"]]
+* [[View listpage&gt;&gt;Import||queryString="site=${siteName}&amp;listpage=1"]]
+* [[View listitem&gt;&gt;Import||queryString="site=${siteName}&amp;listitem=1"]]
+* [[Import&gt;&gt;||queryString="site=${siteName}&amp;import=1"]]
+*#
+ #end
+{{/velocity}}</content>
+</xwikidoc>

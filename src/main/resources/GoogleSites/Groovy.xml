@@ -1,0 +1,603 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<xwikidoc>
+  <web>GoogleSites</web>
+  <name>Groovy</name>
+  <language/>
+  <defaultLanguage/>
+  <translation>0</translation>
+  <parent>GoogleSites.WebHome</parent>
+  <creator>xwiki:XWiki.Admin</creator>
+  <author>xwiki:XWiki.Admin</author>
+  <customClass/>
+  <contentAuthor>xwiki:XWiki.Admin</contentAuthor>
+  <creationDate>1420066800000</creationDate>
+  <date>1420066800000</date>
+  <contentUpdateDate>1420066800000</contentUpdateDate>
+  <version>1.1</version>
+  <title/>
+  <defaultTemplate/>
+  <validationScript/>
+  <comment/>
+  <minorEdit>false</minorEdit>
+  <syntaxId>xwiki/2.1</syntaxId>
+  <hidden>true</hidden>
+  <content>import com.google.api.client.auth.oauth2.Credential;
+import com.google.api.client.googleapis.auth.oauth2.*;
+import com.google.api.ads.common.lib.auth.*;
+import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
+import com.google.api.client.http.HttpTransport;
+import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.client.json.JsonFactory;
+import com.google.api.client.util.store.MemoryDataStoreFactory;
+import com.google.gdata.client.sites.*;
+import com.google.gdata.data.sites.*;
+
+import org.apache.velocity.tools.generic.EscapeTool;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.URL;
+import org.xwiki.script.service.ScriptService;
+import org.xwiki.xml.html.HTMLCleaner;
+import com.xpn.xwiki.web.Utils;
+import org.xwiki.xml.html.HTMLUtils;
+
+import org.xwiki.rendering.block.*;
+import org.xwiki.rendering.block.match.*;
+import org.xwiki.rendering.listener.reference.ResourceType;
+  
+
+public class GoogleSites {
+    def MAX = 1000;
+
+    def xwiki;
+    def xcontext;
+    def request;
+    def response;
+    def currentDoc;
+    def credentials = null;
+
+    def debugStr = "";
+
+    // Config Page
+    def CONFIG_PAGE = "GoogleSites.GoogleSitesConfig";
+    def CONFIG_CLASS = "GoogleSites.GoogleSitesConfigClass";
+    def AUTH_PAGE = "GoogleSites.OAuth";
+    def REDIRECT_URI;
+
+    def DOMAIN = "";
+    def CLIENTID = "";
+    def SECRET = "";
+    def SCOPES = Arrays.asList("https://sites.google.com/feeds/");
+    def TOKEN_SERVER_URL = "https://www.googleapis.com/oauth2/v3/token";
+    def AUTHORIZATION_SERVER_URL = "https://accounts.google.com/o/oauth2/auth";
+
+
+    public static storedCredentials = new HashMap();
+    public static storedStates = new HashMap();
+
+    def escapetool = new EscapeTool();
+    def sitesService = null;
+
+    /** Global instance of the {@link FileDataStoreFactory}. */
+    def DATA_STORE_FACTORY = new MemoryDataStoreFactory();
+
+    def JSON_FACTORY = JacksonFactory.getDefaultInstance();
+
+    /** Global instance of the HTTP transport. */
+    def HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
+
+
+    def CLAZZES = [ announcement : AnnouncementEntry.class, annoucementspage : AnnouncementsPageEntry.class, 
+                    attachment : AttachmentEntry.class, comment : CommentEntry.class, 
+                    filecabinet : FileCabinetPageEntry.class, listitem : ListItemEntry.class, 
+                    listpage : ListPageEntry.class, webpage : WebPageEntry.class, 
+                    webattachment : WebAttachmentEntry.class ];
+
+    def addDebug(str) {
+      debugStr += str + "\n";
+    }
+
+   def getDebug() {
+      return debugStr;
+   }
+
+   def init(xwiki, xcontext, doc) {
+     this.xwiki = xwiki;
+     this.xcontext = xcontext;
+     this.request = xcontext.getRequest();
+     this.response = xcontext.getResponse();
+     this.currentDoc = doc;
+
+     this.CLIENTID  = getConfig("clientid");
+     this.SECRET  = getConfig("secret");
+     this.DOMAIN  = getConfig("domain");
+
+     this.REDIRECT_URI = xwiki.getDocument(AUTH_PAGE).getExternalURL("view");
+    }
+
+
+   public getConfig(name) {
+    def config = "";
+    def configdoc = xwiki.getDocument(CONFIG_PAGE);
+    configdoc.use(CONFIG_CLASS);
+    def obj = configdoc.getDocument().getObject(CONFIG_CLASS);
+    if (obj!=null) {
+      config = (obj.get(name)!=null) ? obj.get(name).getValue() : "";
+    }
+    if (config=="") {
+      configdoc = xwiki.getDocument("xwiki:" + CONFIG_PAGE);
+      configdoc.use(CONFIG_CLASS);
+      obj = configdoc.getDocument().getObject(CONFIG_CLASS);
+      if (obj!=null) {
+        config = (obj.get(name)!=null) ? obj.get(name).getValue() : "";
+      }
+    }
+    return config;
+   }
+
+
+def getFlow() {
+   // Build flow and trigger user authorization request.
+   GoogleAuthorizationCodeFlow flow =
+                new GoogleAuthorizationCodeFlow.Builder(
+                        HTTP_TRANSPORT, JSON_FACTORY, CLIENTID, SECRET, SCOPES)
+                .setDataStoreFactory(DATA_STORE_FACTORY)
+                .setAccessType("offline")
+                .build();
+   return flow;
+}
+
+  /**
+   * Exchange an authorization code for OAuth 2.0 credentials.
+   *
+   * @param authorizationCode Authorization code to exchange for OAuth 2.0
+   *     credentials.
+   * @return OAuth 2.0 credentials.
+   */
+  def exchangeCode(String authorizationCode) {
+    try {
+      def flow = getFlow();
+      def tokenResponse = flow
+          .newTokenRequest(authorizationCode)
+          .setRedirectUri(REDIRECT_URI)
+          .execute();
+      addDebug("Token: " + tokenResponse)
+      return flow.createAndStoreCredential(tokenResponse, xcontext.user);
+    } catch (e) {
+      addDebug("An error occurred: " + e);
+      e.printStackTrace();
+      return null;
+    }
+  }
+
+ def storeCredentials(userId, credentials) {
+   addDebug("Storing credentials for user " + userId);
+   return storedCredentials.put(userId, credentials); 
+ }
+ def getStoredCredentials(userId) {
+   addDebug("Getting credentials for user " + userId);
+   return storedCredentials.get(userId); 
+ }
+
+/**
+   * Retrieve credentials using the provided authorization code.
+   *
+   * This function exchanges the authorization code for an access token and
+   * queries the UserInfo API to retrieve the user's e-mail address. If a
+   * refresh token has been retrieved along with an access token, it is stored
+   * in the application database using the user's e-mail address as key. If no
+   * refresh token has been retrieved, the function checks in the application
+   * database for one and returns it if found or throws a NoRefreshTokenException
+   * with the authorization URL to redirect the user to.
+   *
+   * @param authorizationCode Authorization code to use to retrieve an access
+   *     token.
+   * @param state State to set to the authorization URL in case of error.
+   * @return OAuth 2.0 credentials instance containing an access and refresh
+   *     token.
+   * @throws IOException Unable to load client_secret.json.
+   */
+  def getCredentials(String authorizationCode) throws IOException {
+      return getCredentials(authorizationCode, true);
+  }
+
+  def getCredentials(String authorizationCode, redirect)
+      throws IOException {
+      Credential credentials = null;
+     
+      if (authorizationCode!=null &amp;&amp; authorizationCode!="") {
+       addDebug("Trying to get credentials from authorization code: ${authorizationCode}");
+       credentials = (authorizationCode==null) ? null : exchangeCode(authorizationCode);
+       if (credentials!=null) {
+        def rtoken = credentials.getRefreshToken();
+        if (rtoken != null) {
+         addDebug("Refresh token has been created: " + rtoken);
+         storeCredentials(xcontext.user, credentials);
+         return credentials;
+        } else {
+         addDebug("Failure to create refresh token");
+         storeCredentials(xcontext.user, credentials);
+         return credentials;
+        }
+       }
+      }
+ 
+      if (credentials==null) {
+        addDebug("No credentials found. Checking stored credentials for user " + xcontext.user);
+        credentials = getStoredCredentials(xcontext.user);
+        if (credentials != null) {
+            addDebug("Retrieved stored credentials");
+            return credentials;
+        }
+        addDebug("Could not find stored credentials");
+      }
+
+      addDebug("No credentials retrieved.");
+      // No refresh token has been retrieved.
+      if (redirect) {
+       addDebug("Redirecting to authorization URL.");
+       response.sendRedirect(getAuthorizationURL());
+      }
+ }
+
+
+ def getAuthorizationURL() {
+   def state = "";
+   if (currentDoc.fullName!="GoogleSites.OAuth") {
+     def finalRedirect = request.getRequestURL().toString();
+     def qs = request.getQueryString();
+     if (qs!=null &amp; qs!="")
+      finalRedirect += "?" + qs;
+     state = finalRedirect.hashCode().toString();
+     storedStates.put(state, finalRedirect);
+   }
+
+   def urlBuilder = getFlow()
+        .newAuthorizationUrl()
+        .setRedirectUri(REDIRECT_URI)
+        .setState(state);
+    return urlBuilder.build();
+ }
+
+ def authorize() throws IOException {
+   return authorize(true);
+ }
+
+ def authorize(redirect) throws IOException {
+        addDebug("In authorize")
+        def flow = getFlow();
+        def creds = getCredentials(request.code, redirect);
+        addDebug("Got credentials: ${creds}")
+        if (request.state &amp;&amp; request.state!="") {
+           def url = storedStates.get(request.state);
+           if (url!=null) {
+            addDebug("Redirecting to final destination after authorieation: ${url}")
+            response.sendRedirect(url)
+           }
+        }
+        return creds;
+ }
+ 
+  
+    def getEntryId(String selfLink) {
+      return selfLink.substring(selfLink.lastIndexOf("/") + 1);
+    }
+  
+    def getContentBlob(BaseContentEntry&lt;?&gt; entry) {
+     return entry.getTextContent().getContent().getXhtml().getBlob();
+    }
+
+    def getWikiSyntax(html, wikiPageName, space, attachments, pagesByUrl) {
+       // clean HTML to get XHTML that we can use in XmlParser
+       addDebug("HTML: " + html)
+       def cleaner = Utils.getComponent(org.xwiki.xml.html.HTMLCleaner.class)
+       def wdoc = cleaner.clean(new StringReader(html));
+       def html2 = HTMLUtils.toString(wdoc, true, true);
+       
+       // cleaning table layout
+       if (html2.contains("sites-layout-name-one-column"))
+         html2 = html2.replaceAll("&lt;body&gt;&lt;div.*sites-layout-name-one-column.*&lt;div dir=.ltr.&gt;", "&lt;body&gt;").replaceAll("&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;&lt;/div&gt;&lt;/body&gt;&lt;/html&gt;", "&lt;/body&gt;&lt;/html&gt;")
+
+
+       addDebug("CLEANED HTML: " + html2);
+       def renderingService = Utils.getComponent(ScriptService.class, 'rendering')
+       def xdomBlock = renderingService.parse(html2, "xhtml/1.0")
+
+       // find all links and images
+       if (xdomBlock!=null) {
+         for (image in xdomBlock.getBlocks(new ClassBlockMatcher(ImageBlock.class), Block.Axes.DESCENDANT)) {
+            def imageBlockRef = image.getReference();
+            def imageURL = imageBlockRef.getReference();
+            def qs = ""
+            imageURL = imageURL.replaceAll("/_/rsrc/(.*?)/", "/")
+            def i = imageURL.indexOf("?");
+            if (i!=-1) {
+              qs = imageURL.substring(i);
+              imageURL = imageURL.substring(0, i);
+            }
+            def imageRef = attachments.get(imageURL);
+            addDebug("Found image block: " + imageURL + " -&gt; " + imageRef);
+            if (imageRef!=null) {
+              imageBlockRef.setType(ResourceType.ATTACHMENT);
+              imageBlockRef.setReference(imageRef);
+            }
+         }
+         for (link in xdomBlock.getBlocks(new ClassBlockMatcher(LinkBlock.class), Block.Axes.DESCENDANT)) {
+            def linkBlockRef = link.getReference();
+            def linkURL = linkBlockRef.getReference();
+            def qs = ""
+            linkURL = linkURL.replaceAll("/_/rsrc/(.*?)/", "/").replaceAll("/\\?.*/", "")
+            def i = linkURL.indexOf("?");
+            if (i!=-1) {
+              qs = linkURL.substring(i+1);
+              linkURL = linkURL.substring(0, i);
+            }
+            def linkRef = attachments.get(linkURL);
+ 
+            if (linkRef!=null) {
+              addDebug("Found link block: " + linkURL + " -&gt; " + linkRef);
+              linkBlockRef.setType(ResourceType.ATTACHMENT);
+              linkBlockRef.setReference(linkRef);
+            } else {
+              linkRef = pagesByUrl.get(linkURL);
+              if (linkRef!=null) {
+               addDebug("Found link block: " + linkURL + " -&gt; " + linkRef);
+               linkBlockRef.setType(ResourceType.DOCUMENT);
+               linkBlockRef.setReference(linkRef);
+              } else {
+               addDebug("Found link block: " + linkURL + " -&gt; " + linkRef);
+             }
+            }
+         }
+       }
+
+       def wikisyntax = renderingService.render(xdomBlock, "xwiki/2.1");
+       addDebug("WikiSyntax: -" + wikisyntax + "-")
+
+       if (wikisyntax==null) {
+         addDebug("ERROR: generating wikisyntax for page ${wikiPageName}")
+         return """{{html clean="false"}}${html2}{{/html}}"""
+       } 
+       return wikisyntax;
+      
+    }
+
+   public getSitesService() {
+     if (sitesService==null) {
+      def credentials = authorize();
+      if (credentials==null) {
+       println "Failed to authenticate on Google Services";
+       return null;
+      } else {
+       sitesService = new SitesService("XWiki-GoogleSites-Import")
+       sitesService.setOAuth2Credentials(credentials);
+      }
+     }
+     return sitesService;
+    }
+
+   public getSites() {
+     def service = getSitesService();
+     def list = new ArrayList();
+     if (service==null)
+        return null;
+     def siteFeedURL = "https://sites.google.com/feeds/site/${DOMAIN}/";
+     def siteFeed = service.getFeed(new URL(siteFeedURL), SiteFeed.class);
+     return siteFeed.getEntries()
+   }
+
+   public getWebPageEntries(site, start, max) {
+     return getEntries(site, "webpage", null, start, max);  
+   }
+ 
+   public getListPageEntries(site, kind, start, max) {
+     return getEntries(site, kind, null, start, max);  
+   }
+ 
+   public getListItemEntries(site, kind, start, max) {
+     return getEntries(site, kind, ListItemEntry.class, start, max);  
+   }
+
+   public getAttachmentEntries(site, start, max) {
+     return getEntries(site, "attachment", null, start, max);  
+   }
+
+   public getEntries(site, kind, clazz) {
+      return getEntries(site, kind, clazz, 1, MAX);  
+   }
+
+   public getEntries(site, kind, start, max) {     
+      return getEntries(site, kind, CLAZZES[kind], start, max)
+   }
+ 
+   public getEntries(site, kind, clazz, start, max) {
+      def MAX = 100;
+      def currentStart = start;
+      if (currentStart==0)
+       currentStart = 1;
+      def entries = new ArrayList();
+      def currentEntries = null;
+      def service = getSitesService();
+      if (service==null)
+        return null;
+      addDebug("GetEntries: site: ${site} kind: ${kind} clazz: ${clazz} start: ${start} max: ${max}")
+
+      while (true) {
+       def contentFeedURL = "https://sites.google.com/feeds/content/${DOMAIN}/${site}/?";
+       if (kind!="")
+        contentFeedURL += "&amp;kind=${kind}"
+       if (currentStart&gt;0)
+        contentFeedURL += "&amp;start-index=${currentStart}"
+       if (max&gt;MAX) 
+        contentFeedURL += "&amp;max-results=${MAX}"
+       else if (max&gt;0)
+        contentFeedURL += "&amp;max-results=${max}"
+
+       addDebug("URL for ${kind}: {{{ ${contentFeedURL} }}}");
+       def contentFeed = service.getFeed(new URL(contentFeedURL), ContentFeed.class);
+       addDebug("Getting entry of class ${clazz}")
+       currentEntries = (clazz!=null) ? contentFeed.getEntries(clazz) : contentFeed.getEntries();
+       entries.addAll(currentEntries)
+       currentStart += MAX;
+       addDebug("Added " + currentEntries.size() + " entries")
+       addDebug("Added " + currentEntries)
+       if ((currentEntries.size()==0) || (entries.size() &lt; max))
+         break;
+      }
+      return entries;
+   }
+
+   public getEntry(site, kind, id) {
+    def service = getSitesService();
+    def contentFeedURL = "https://sites.google.com/feeds/content/${DOMAIN}/${site}/"
+    contentFeedURL += "?path=/";
+    addDebug("URL: " + contentFeedURL)
+    def contentFeed = service.getFeed(new URL(contentFeedURL), ContentFeed.class);
+    def currentEntries = contentFeed.getEntries(CLAZZES[kind]);
+    return currentEntries;
+  }  
+  
+   def getNextPageName(entry, pagenames, space) {
+      def startWikiPageName = "";
+      try {
+       startWikiPageName = space + "." + entry.getExtension(PageName.class).getValue()
+      } catch(e) {
+       addDebug("Cannot get page name for entry ${entry.id}")
+       return "";
+      }
+      def counter = 0;
+      def wikiPageName = startWikiPageName;
+      while (pagenames.contains(wikiPageName)) {
+        counter++;
+        wikiPageName = startWikiPageName + "_${counter}";
+      }
+      pagenames.add(wikiPageName);
+      return wikiPageName;
+   }
+
+      
+   def importPage(entry, wikiPageName, pages, space, attachments, pagesByUrl) {
+      def html = getContentBlob(entry);
+      def wikisyntax = getWikiSyntax(html, wikiPageName, space, attachments, pagesByUrl);
+      def pageDoc = xwiki.getDocument(wikiPageName);
+      def parentLink = entry.getLink("parent", null);
+      def parentURL = (parentLink==null) ? null : parentLink.value;
+      def parentName = (parentURL==null) ? "${space}.WebHome" : pages.get(parentURL)
+      if (parentName==null &amp;&amp; parentURL!=null) {
+         parentName = parentURL.substring(parentURL.lastIndexOf("/") + 1);
+      }
+      pageDoc.setTitle(entry.getTitle().getPlainText());
+      pageDoc.setContent(wikisyntax);
+      pageDoc.setParent((parentName==null || parentName.equals("")) ? "Doc.WebHome" : parentName);
+      addDebug("Ready to import " + entry.getTitle().getPlainText() + " in " + wikiPageName + " with parent " + parentName);
+      if (request.confirm=="1") {
+       pageDoc.save("Imported document from Google Sites"); 
+       addDebug("Page created: [[${pageDoc.fullName}]]");
+      }
+   }
+
+    public getPages(site, space) {
+      def entries = getWebPageEntries(site, 1, MAX);
+      return getPages(site, space, entries);
+    }
+
+    public getPages(site, space, entries) {
+      def pages = new HashMap();
+      def pageNames = new ArrayList();
+      for (entry in entries) {
+       def pageName = getNextPageName(entry, pageNames, space)
+       pages.put(entry.getId(), pageName);
+      }
+      return pages;
+    }
+
+    public getPagesByUrl(site, space) {
+     def entries = getWebPageEntries(site, 1, MAX);
+     return getPagesByUrl(site, space, entries);
+    }
+
+    public getPagesByUrl(site, space, entries) {
+      def pages = new HashMap();
+      def pageNames = new ArrayList();
+      for (entry in entries) {
+       def pageName = getNextPageName(entry, pageNames, space)
+       pages.put(entry.getLink("alternate", null).getHref(), pageName);
+      }
+      return pages;
+    }
+
+    public importPages(site, space) {
+     def attachments = getAttachments(site, space);
+     def entries = getWebPageEntries(site, 1, MAX);
+     def pages = getPages(site, space, entries);
+     def pagesByUrl = getPagesByUrl(site, space, entries);
+     def counter = 0;
+     for (entry in entries) {
+        importPage(entry, pages.get(entry.getId()), pages, space, attachments, pagesByUrl);
+        counter++;
+     }
+     return counter;
+    }
+
+    def getAttachments(site, space) {
+      def attachments = new HashMap();
+      def pages = getPages(site, space)
+      for (entry in getAttachmentEntries(site, 1, MAX)) {
+         def url = entry.getLink("alternate", null).getHref()
+         def filename = entry.getTitle().getPlainText();
+         def parentURL = entry.getLink("http://schemas.google.com/sites/2008#parent", null).getHref()
+         def parentPage = pages.get(parentURL)
+         def pageDoc = xwiki.getDocument(parentPage)
+         attachments.put(url, parentPage + "@" + filename);
+      }
+      addDebug("Attachment map: " + attachments)
+      return attachments;
+    }
+
+    def getAttachmentBlob(BaseContentEntry&lt;?&gt; entry) {
+     def mediaSource = getSitesService().getMedia(entry.getContent());
+     def data = org.apache.commons.io.IOUtils.toByteArray(mediaSource.getInputStream());
+     return data;
+    }
+  
+    public importAttachments(site, space) {
+      def pages = getPages(site, space)
+      def importAttachments = new ArrayList()
+      def failedAttachments = new ArrayList()
+      def alreadyImportedAttachments = new ArrayList()
+      for (entry in getAttachmentEntries(site, 1, MAX)) {
+         def url = entry.getLink("alternate", null).getHref()
+         def filename = entry.getTitle().getPlainText();
+         def parentURL = entry.getLink("http://schemas.google.com/sites/2008#parent", null).getHref()
+         def parentPage = pages.get(parentURL)
+         def pageDoc = xwiki.getDocument(parentPage)
+         if (parentPage==null || pageDoc.isNew()) {
+           failedAttachments.add(entry);
+         } else {
+           def data = getAttachmentBlob(entry);
+           addDebug("Attachment content: " + data.length);
+           def attach = pageDoc.getAttachment(filename);
+           if (attach==null) {
+                pageDoc.addAttachment(filename, data);
+                pageDoc.save("Added attachment ${filename}")
+           } else {
+             def currentData = attach.getContentAsBytes();
+             if (currentData.equals(data)) {
+                alreadyImportedAttachments.add(entry);
+             } else {
+                pageDoc.addAttachment(filename, data);
+                pageDoc.save("Updated attachment ${filename}")
+             }
+           }
+          }
+         }
+         return [ "success" : importAttachments, "failed":  failedAttachments, 
+                  "alreadyImported" : alreadyImportedAttachments ];
+   }
+
+}
+</content>
+</xwikidoc>
