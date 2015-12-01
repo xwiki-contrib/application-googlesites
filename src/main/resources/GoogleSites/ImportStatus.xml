@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<xwikidoc>
+  <web>GoogleSites</web>
+  <name>ImportStatus</name>
+  <language/>
+  <defaultLanguage/>
+  <translation>0</translation>
+  <parent>GoogleSites.Groovy</parent>
+  <creator>xwiki:XWiki.Admin</creator>
+  <author>xwiki:XWiki.Admin</author>
+  <customClass/>
+  <contentAuthor>xwiki:XWiki.Admin</contentAuthor>
+  <creationDate>1420066800000</creationDate>
+  <date>1420066800000</date>
+  <contentUpdateDate>1420066800000</contentUpdateDate>
+  <version>1.1</version>
+  <title>ImportStatus</title>
+  <defaultTemplate/>
+  <validationScript/>
+  <comment/>
+  <minorEdit>false</minorEdit>
+  <syntaxId>xwiki/2.1</syntaxId>
+  <hidden>false</hidden>
+  <content>{{velocity}}
+#set($import = $xwiki.parseGroovyFromPage("GoogleSites.Groovy"))
+#set($ok = $import.init($xwiki, $xcontext, $doc))
+#if($request.reset)
+ #set($ok = $import.endImport())
+#end
+#set($importStatus = $import.getImportStatus())
+#if($importStatus.active)
+ #if(!$importStatus.get("total"))
+* Import starting $!importStatus.count / $!importStatus.total
+ #else
+* Import active $!importStatus.count / $!importStatus.total
+ #end
+#elseif($importStatus.total)
+* Import finished $!importStatus.count / $!importStatus.total
+#else
+* Import not started
+#end
+* Imported pages: $!importStatus.importedPages.size()
+* Failed pages: $!importStatus.failedPages.size()
+* Imported attachments: $!importStatus.importedAttachments.size()
+* Failed attachments: $!importStatus.failedAttachments.size()
+* Missing page attachments: $!importStatus.missingPagesAttachments.size()
+* Already imported attachments: $!importStatus.alreadyImportedAttachments.size()
+* Exception: $!importStatus.exception
+
+#if($request.debug)
+* Last debug:
+
+$importStatus.debug
+#end
+{{/velocity}}</content>
+</xwikidoc>

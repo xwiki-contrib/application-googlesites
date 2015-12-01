@@ -38,26 +38,64 @@ Space: &lt;input type="text" name="space" value="$!{escapetool.xml($request.spac
 &lt;/form&gt;
 {{/html}}
 #if($request.space)
-#if($request.confirm)
-{{info}}
-$import.importPages($request.site, $request.space) Imported pages
-{{/info}}
-#end
-#set($pagenames = [])
+ #if($request.confirm=="2")
+   #set($ok = $import.importPages($request.site, $request.space))
+ #elseif($request.confirm)
+   #set($isActive = $import.getImportActive())
+   #if($isActive)
+ An import is already in progress. See status below:
+ 
+   #else
+ Import has started. See status below: 
+   #end
+   #set($url = $doc.getURL("get", "xpage=plain&amp;site=${request.site}&amp;space=${request.space}&amp;confirm=2"))
+   #set($statusurl = $xwiki.getURL("GoogleSites.ImportStatus", "get", "xpage=plain"))
+{{html clean==false}}
+&lt;div id="importstatus"&gt;
+loading.. please wait
+&lt;/div&gt;
+&lt;script type="text/javascript"&gt;
+require(['jquery'], function($) { 
+function startImport(){
+    $.ajax('${url}',function () {});
+}
+function loadlink(){
+    $('#importstatus').load('${statusurl}',function () {
+     if ($('#importstatus').html().indexOf("Import active")!=-1 
+         || $('#importstatus').html().indexOf("Import start")!=-1) {
+        setTimeout(function(){
+         loadlink()
+        }, 1000);
+      }
+     });
+    }
+  #if(!$isActive)
+ startImport(); 
+ setTimeout(function(){ loadlink() }, 3000);
+  #else
+ loadlink();
+  #end
+});
+&lt;/script&gt;
+{{/html}}
+ #else
+  #set($pagenames = [])
 == List of pages ==
 
 |= ID |= Title |= URL |= Target Page |= Target Page existing |= Action
-#foreach($entry in $import.getWebPageEntries($request.site, 1, 1000))
- #set($pageName = $import.getNextPageName($entry, $pagenames, $request.space))
- #set($pageDoc = $xwiki.getDocument($pageName))
+  #foreach($entry in $import.getWebPageEntries($request.site, 1, 1000))
+   #set($pageName = $import.getNextPageName($entry, $pagenames, $request.space))
+   #set($pageDoc = $xwiki.getDocument($pageName))
 | $entry.id | $!entry.getTitle().getPlainText() | $!entry.getLink("alternate", $xwiki.null).getHref() | #if(!$pageDoc.isNew()) [[$pageDoc.fullName&gt;&gt;$pageDoc.fullName]] | Yes #else $pageName | No #end
-
-#end
+| [[Import Page&gt;&gt;ImportPage||queryString="site=${request.site}&amp;space=${request.space}&amp;id=${entry.getId()}&amp;page=${pageName}"]]
+  #end
+ #end
 #end
 #else
  No site has been chosen
 #end
-
+#if($request.debug)
 Debug: $import.debugStr
+#end
 {{/velocity}}</content>
 </xwikidoc>

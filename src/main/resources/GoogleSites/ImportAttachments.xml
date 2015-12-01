@@ -37,25 +37,62 @@ Space: &lt;input type="text" name="space" value="$!{escapetool.xml($request.spac
 &lt;input type="submit" value="Go" /&gt;
 &lt;/form&gt;
 {{/html}}
-#if($request.space)
-#if($request.confirm)
-{{info}}
-$import.importAttachments($request.site, $request.space) Imported pages
-{{/info}}
-#end
-#set($attnames = [])
-#set($pages = $import.getPages($request.site, $request.space))
+ #if($request.space)
+ #if($request.confirm=="2")
+   #set($ok = $import.importAttachments($request.site, $request.space))
+ #elseif($request.confirm)
+   #set($isActive = $import.getImportActive())
+   #if($isActive)
+ An import is already in progress. See status below:
+ 
+   #else
+ Import has started. See status below: 
+   #end
+   #set($url = $doc.getURL("get", "xpage=plain&amp;site=${request.site}&amp;space=${request.space}&amp;confirm=2"))
+   #set($statusurl = $xwiki.getURL("GoogleSites.ImportStatus", "get", "xpage=plain"))
+{{html clean==false}}
+&lt;div id="importstatus"&gt;
+loading.. please wait
+&lt;/div&gt;
+&lt;script type="text/javascript"&gt;
+require(['jquery'], function($) { 
+function startImport(){
+    $.ajax('${url}',function () {});
+}
+function loadlink(){
+    $('#importstatus').load('${statusurl}',function () {
+     if ($('#importstatus').html().indexOf("Import active")!=-1 
+         || $('#importstatus').html().indexOf("Import start")!=-1) {
+        setTimeout(function(){
+         loadlink()
+        }, 1000);
+      }
+     });
+    }
+  #if(!$isActive)
+ startImport(); 
+ setTimeout(function(){ loadlink() }, 3000);
+  #else
+ loadlink();
+  #end
+});
+&lt;/script&gt;
+{{/html}}
+ #else
+   #set($attnames = [])
+   #set($pages = $import.getPages($request.site, $request.space))
 == List of attachments ==
 
 |= ID |= Filename |= URL |= Parent Page |= Action
-#foreach($entry in $import.getAttachmentEntries($request.site, 1, 1000))
- #set($url = $!entry.getLink("alternate", $xwiki.null).getHref())
- #set($parentURL = $!entry.getLink("http://schemas.google.com/sites/2008#parent", $xwiki.null).getHref())
- #set($parentPage = $pages.get($parentURL))
+   #foreach($entry in $import.getAttachmentEntries($request.site, 1, 1000))
+    #set($url = $!entry.getLink("alternate", $xwiki.null).getHref())
+    #set($parentURL = $!entry.getLink("http://schemas.google.com/sites/2008#parent", $xwiki.null).getHref())
+    #set($parentPage = $pages.get($parentURL))
 | $entry.id | $!entry.getTitle().getPlainText() | $url | #if($parentPage) [[$parentPage]] #else $parentURL #end
 
-#end
-#end
+   #end
+  #end
+ #end 
 #else
  No site has been chosen
 #end
