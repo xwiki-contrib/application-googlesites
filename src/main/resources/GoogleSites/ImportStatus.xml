@@ -25,9 +25,6 @@
   <content>{{velocity}}
 #set($import = $xwiki.parseGroovyFromPage("GoogleSites.Groovy"))
 #set($ok = $import.init($xwiki, $xcontext, $doc))
-#if($request.reset)
- #set($ok = $import.endImport())
-#end
 #set($importStatus = $import.getImportStatus())
 #if($importStatus.active)
  #if(!$importStatus.get("total"))
@@ -41,12 +38,17 @@
 * Import not started
 #end
 * Imported pages: $!importStatus.importedPages.size()
+* Failed HTML pages: $!importStatus.failedHtmlPages.size()
 * Failed pages: $!importStatus.failedPages.size()
 * Imported attachments: $!importStatus.importedAttachments.size()
+* Updated attachments: $!importStatus.updatedAttachments.size()
 * Failed attachments: $!importStatus.failedAttachments.size()
-* Missing page attachments: $!importStatus.missingPagesAttachments.size()
+* Missing page attachments: $!importStatus.missingPageAttachments.size()
 * Already imported attachments: $!importStatus.alreadyImportedAttachments.size()
 * Exception: $!importStatus.exception
+#set($fm = $xcontext.getContext().getWiki().freeMemory())
+#set($fm = $fm / 1024 / 1024)
+* Free memory: ${fm}M
 
 #if($request.debug)
 * Last debug:

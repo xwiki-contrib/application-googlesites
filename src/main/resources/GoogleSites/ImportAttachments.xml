@@ -25,6 +25,7 @@
   <content>{{velocity}}
 #set($import = $xwiki.parseGroovyFromPage("GoogleSites.Groovy"))
 #set($ok = $import.init($xwiki, $xcontext, $doc))
+#set($creds = $import.authorize())
 #set($kind = "webpage")
 #if($request.site)
 {{html clean=false}}

@@ -311,7 +311,6 @@ def getFlow() {
       }
  }
 
-
  def getAuthorizationURL() {
    def state = "";
    if (currentDoc.fullName!="GoogleSites.OAuth") {
@@ -359,25 +358,27 @@ def getFlow() {
     }
 
     def getWikiSyntax(html, wikiPageName, space, attachments, pagesByUrl) {
-       addDebug("Original HTML: " + html)
+       // addDebug("Original HTML: " + html)
       
        // cleaning table layout
        if (html.contains("sites-layout-name-one-column"))
          html = html.replaceAll("&lt;body&gt;&lt;div.*?sites-layout-name-one-column.*?&lt;div dir=.ltr.&gt;", "&lt;body&gt;").replaceAll("&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;&lt;/div&gt;&lt;/body&gt;&lt;/html&gt;", "&lt;/body&gt;&lt;/html&gt;")
 
        // replace successive blockquotes.. multiple times because they can be multiple in a row
+       /*
        for (i in 1..10) {
         html = html.replaceAll("(&lt;blockquote.*?&gt;)&lt;div.*?&gt;", { return it[1]})
         html = html.replaceAll("&lt;\\/div&gt;(&lt;\\/blockquote&gt;)", { return it[1]})
         html = html.replaceAll("&lt;\\/blockquote&gt;&lt;blockquote.*?&gt;", "")
        }
+       */
  
        // clean HTML to get XHTML that we can use in XmlParser
        def cleaner = Utils.getComponent(org.xwiki.xml.html.HTMLCleaner.class)
        def wdoc = cleaner.clean(new StringReader(html));
        def html2 = HTMLUtils.toString(wdoc, true, true);
  
-       addDebug("Cleaned HTML: " + html2);
+       // addDebug("Cleaned HTML: " + html2);
        def renderingService = Utils.getComponent(ScriptService.class, 'rendering')
        def xdomBlock = renderingService.parse(html2, "xhtml/1.0")
 
@@ -430,7 +431,7 @@ def getFlow() {
        }
 
        def wikisyntax = renderingService.render(xdomBlock, "xwiki/2.1");
-       addDebug("WikiSyntax: -" + wikisyntax + "-")
+       // addDebug("WikiSyntax: {{{" + wikisyntax + "}}}")
 
        if (wikisyntax==null) {
          addDebug("ERROR: generating wikisyntax for page ${wikiPageName}")
@@ -515,9 +516,9 @@ def getFlow() {
        addDebug("Getting entry of class ${clazz}")
        currentEntries = (clazz!=null) ? contentFeed.getEntries(clazz) : contentFeed.getEntries();
        entries.addAll(currentEntries)
-       currentStart += MAX;
+       currentStart += currentEntries.size();
        addDebug("Added " + currentEntries.size() + " entries")
-       if ((currentEntries.size()==0) || (entries.size() &lt; max))
+       if ((currentEntries.size()==0) || (entries.size() &gt; max))
          break;
       }
       return entries;
@@ -567,11 +568,15 @@ def getFlow() {
       pageDoc.setContent(wikisyntax);
       pageDoc.setParent((parentName==null || parentName.equals("")) ? "Doc.WebHome" : parentName);
       addDebug("Ready to import " + entry.getTitle().getPlainText() + " in " + wikiPageName + " with parent " + parentName);
-      if (request.confirm=="1") {
+      if (request.confirm=="2") {
        pageDoc.save("Imported document from Google Sites"); 
        addDebug("Page created: [[${pageDoc.fullName}]]");
       }
-      addImportedObject([ "entry" : entry, "wikiPageName" : wikiPageName], "importedPages");
+      if (wikisyntax.startsWith("{" + "{" + "html")) {
+        addImportedObject([ "entry" : entry, "wikiPageName" : wikiPageName], "failedHtmlPages");
+      } else {
+        addImportedObject([ "entry" : entry, "wikiPageName" : wikiPageName], "importedPages");
+      }
     } catch(e) {
       addDebug("Failed to import " + entry.getId() + " in " + wikiPageName + ": " + e.getMessage());
       addImportedObject([ "entry" : entry, "wikiPageName" : wikiPageName], "failedPages", "exception" : e);
@@ -623,6 +628,17 @@ def getFlow() {
       for (entry in entries) {
         importPage(entry, pages.get(entry.getId()), pages, space, attachments, pagesByUrl);
         counter++;
+        // Every 50 imports let's clean cache and force GC
+        if (counter % 50 == 0) {
+            xwiki.flushCache();
+            System.gc();
+            def fm = context.getWiki().freeMemory() / 1024 / 1024;
+            addDebug("Free memory: " + fm )
+        }
+        // import has been reset.. we should break
+        if (getImportActive()==false) {
+           break;
+        }
       }
       return counter;
      } catch(e) {
@@ -676,6 +692,7 @@ def getFlow() {
     if (getImportActive())
        return -1;
 
+     addDebug("Import attachment starting")
      startImport();
      try {
       def pages = getPages(site, space)
@@ -693,6 +710,7 @@ def getFlow() {
          parentPage = pages.get(parentURL)
          def pageDoc = xwiki.getDocument(parentPage)
          if (parentPage==null || pageDoc.isNew()) {
+           addDebug("Missing page for attachment: ${parentPage} ${pageDoc.isNew()} ${parentURL} ${filename} ${url}")
            addImportedObject([ "entry" : entry, "wikiPageName" : parentPage, "filename" : filename], "missingPageAttachments");
          } else {
            def data = getAttachmentBlob(entry);
@@ -701,6 +719,7 @@ def getFlow() {
            if (attach==null) {
                 pageDoc.addAttachment(filename, data);
                 pageDoc.save("Added attachment ${filename}")
+                addImportedObject([ "entry" : entry, "wikiPageName" : parentPage, "filename" : filename], "importedAttachments");
            } else {
              def currentData = attach.getContentAsBytes();
              if (currentData.equals(data)) {
@@ -708,7 +727,7 @@ def getFlow() {
              } else {
                 pageDoc.addAttachment(filename, data);
                 pageDoc.save("Updated attachment ${filename}")
-                addImportedObject([ "entry" : entry, "wikiPageName" : parentPage, "filename" : filename], "importedAttachments");
+                addImportedObject([ "entry" : entry, "wikiPageName" : parentPage, "filename" : filename], "updatedAttachments");
              }
            }
           }
@@ -717,7 +736,7 @@ def getFlow() {
            addImportedObject([ "entry" : entry, "wikiPageName" : parentPage, "filename" : filename, "exception" : e2], "failedAttachments");
         }
       }
-      addDebug("Import attachment started")
+      addDebug("Import attachment finished")
       return counter;
      } catch(e) {
       setImportException(e);
