@@ -11,9 +11,9 @@
   <author>xwiki:XWiki.Admin</author>
   <customClass/>
   <contentAuthor>xwiki:XWiki.Admin</contentAuthor>
-  <creationDate>1420066800000</creationDate>
-  <date>1420066800000</date>
-  <contentUpdateDate>1420066800000</contentUpdateDate>
+  <creationDate>1451602800000</creationDate>
+  <date>1451602800000</date>
+  <contentUpdateDate>1451602800000</contentUpdateDate>
   <version>1.1</version>
   <title>Site Statistics</title>
   <defaultTemplate/>
@@ -44,13 +44,51 @@
   #end 
 
 #if($request.kind)
-== Details ==
-
-|= ID |= Name |= URL |= Parent Page
-#foreach($entry in $import.getEntries($request.site, $request.kind, $xwiki.null, 1, 1000))
-| $entry.id | $!entry.getTitle().getPlainText() | $!entry.getLink("alternate", $xwiki.null).getHref() | $!entry.getParentLink().getHref()
-
-#end
+  == Details ==
+  
+  ## Called before to avoid loading it each try of the foreach
+  #if($request.kind == "listpage")
+    #set($listItemEntries = $import.getEntries($request.site, "listitem", $xwiki.null, 1, 1000))
+  #end
+  ##
+  #foreach($entry in $import.getEntries($request.site, $request.kind, $xwiki.null, 1, 1000))
+    ## ##
+    #if($request.kind == "listpage")
+      #set($listPageEntry = $import.getAsListPageEntry($entry))
+      #set($listPageItems = [])
+      #foreach($item in $listItemEntries)
+        #set($listItemEntry = $import.getAsListItemEntry($item))
+        #if("$listItemEntry.getParentLink().getHref()" == "$entry.id")
+          #set($discard = $listPageItems.add($listItemEntry))
+        #end
+      #end
+      |= ID |= Name |= URL |= Items
+      | $listPageEntry.id | $!listPageEntry.getTitle().getPlainText() | $!listPageEntry.getLink("alternate", $xwiki.null).getHref() | 
+     #set($columns = {})
+     #foreach($col in $!{listPageEntry.getData().getColumns()})
+       #set($discard = $columns.put("$!{col.getIndex()}", "$!{col.getName()}"))
+     #end
+     #foreach($item in $!{listPageItems})
+      $item.id
+      #foreach($field in $!{item.getFields()})
+        [ $!columns.get("$!{field.getIndex()}") ] $!field.getValue()
+      #end
+      \\
+     #end
+    ## ##
+    #elseif($request.kind == "listitem")
+      #set($listItemEntry = $import.getAsListItemEntry($entry))
+      |= ID |= Name |= URL |= Parent Page
+      | $listItemEntry.id | $!listItemEntry.getTitle().getPlainText() | $!listItemEntry.getLink("alternate", $xwiki.null).getHref() | $!listItemEntry.getParentLink().getHref()
+    #elseif($request.kind == "filecabinet")
+      #set($fileCabinetEntry = $import.getAsFileCabinetEntry($entry))
+      |= ID |= Name |= URL |= Parent Page
+      | $fileCabinetEntry.id | $!fileCabinetEntry.getTitle().getPlainText() | $!fileCabinetEntry.getLink("alternate", $xwiki.null).getHref() | $!fileCabinetEntry.getParentLink().getHref()
+    #else
+    |= ID |= Name |= URL |= Parent Page |= Author
+    | $entry.id | $!entry.getTitle().getPlainText() | $!entry.getLink("alternate", $xwiki.null).getHref() | $!entry.getParentLink().getHref() | $!entry.getAuthors().get(0).getEmail()
+    #end
+  #end
 #end
 #else
  No site has been chosen

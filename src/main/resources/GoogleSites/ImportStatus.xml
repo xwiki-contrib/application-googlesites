@@ -11,9 +11,9 @@
   <author>xwiki:XWiki.Admin</author>
   <customClass/>
   <contentAuthor>xwiki:XWiki.Admin</contentAuthor>
-  <creationDate>1420066800000</creationDate>
-  <date>1420066800000</date>
-  <contentUpdateDate>1420066800000</contentUpdateDate>
+  <creationDate>1451602800000</creationDate>
+  <date>1451602800000</date>
+  <contentUpdateDate>1451602800000</contentUpdateDate>
   <version>1.1</version>
   <title>ImportStatus</title>
   <defaultTemplate/>
@@ -49,6 +49,46 @@
 #set($fm = $xcontext.getContext().getWiki().freeMemory())
 #set($fm = $fm / 1024 / 1024)
 * Free memory: ${fm}M
+
+#if("$!importStatus.failedHtmlPages.size()" != "" &amp;&amp; $!importStatus.failedHtmlPages.size() &gt; 0)
+  {{code}}
+  =List of Failed HTML Page=
+
+  #foreach($failedHtmlPage in $importStatus.failedHtmlPages)
+    $failedHtmlPage.wikiPageName
+  #end
+  {{/code}}
+#end
+
+#if("$!importStatus.failedPages.size()" != "" &amp;&amp; $!importStatus.failedPages.size() &gt; 0)
+  {{code}}
+  =List of Failed Pages=
+
+  #foreach($failedPage in $importStatus.failedPages)
+    $failedPage.wikiPageName
+  #end
+  {{/code}}
+#end
+
+#if("$!importStatus.failedAttachments.size()" != "" &amp;&amp; $!importStatus.failedAttachments.size() &gt; 0)
+  {{code}}
+  =List of Failed Attachments=
+    
+  #foreach($failedAttachment in $importStatus.failedAttachments)
+    $failedAttachment.wikiPageName
+  #end
+  {{/code}}
+#end
+
+#if("$!importStatus.missingPageAttachments.size()" != "" &amp;&amp; $!importStatus.missingPageAttachments.size() &gt; 0)
+  {{code}}
+  =List of Missing Page for Attachments=
+    
+  #foreach($missingPageAttachment in $importStatus.missingPageAttachments)
+    $missingPageAttachment.wikiPageName
+  #end
+  {{/code}}
+#end
 
 #if($request.debug)
 * Last debug:

@@ -11,9 +11,9 @@
   <author>xwiki:XWiki.Admin</author>
   <customClass/>
   <contentAuthor>xwiki:XWiki.Admin</contentAuthor>
-  <creationDate>1420066800000</creationDate>
-  <date>1420066800000</date>
-  <contentUpdateDate>1420066800000</contentUpdateDate>
+  <creationDate>1451602800000</creationDate>
+  <date>1451602800000</date>
+  <contentUpdateDate>1451602800000</contentUpdateDate>
   <version>1.1</version>
   <title/>
   <defaultTemplate/>
@@ -102,6 +102,8 @@ public class GoogleSites {
                     webattachment : WebAttachmentEntry.class ];
 
    def addDebug(str) {
+      // print message on server log
+      println "Google Sites Importer - " + str ;
       debugStr += str + "\n";
       def statusObj = getImportStatus();
       def cdebug = statusObj.get("debug");
@@ -354,11 +356,12 @@ def getFlow() {
     }
   
     def getContentBlob(BaseContentEntry&lt;?&gt; entry) {
-     return entry.getTextContent().getContent().getXhtml().getBlob();
+       return entry.getTextContent().getContent().getXhtml().getBlob();
     }
 
     def getWikiSyntax(html, wikiPageName, space, attachments, pagesByUrl) {
        // addDebug("Original HTML: " + html)
+       def roothtml = html;
       
        // cleaning table layout
        if (html.contains("sites-layout-name-one-column"))
@@ -372,7 +375,7 @@ def getFlow() {
         html = html.replaceAll("&lt;\\/blockquote&gt;&lt;blockquote.*?&gt;", "")
        }
        */
- 
+
        // clean HTML to get XHTML that we can use in XmlParser
        def cleaner = Utils.getComponent(org.xwiki.xml.html.HTMLCleaner.class)
        def wdoc = cleaner.clean(new StringReader(html));
@@ -394,11 +397,23 @@ def getFlow() {
               qs = imageURL.substring(i);
               imageURL = imageURL.substring(0, i);
             }
-            def imageRef = attachments.get(imageURL);
-            addDebug("Found image block: " + imageURL + " -&gt; " + imageRef);
-            if (imageRef!=null) {
-              imageBlockRef.setType(ResourceType.ATTACHMENT);
-              imageBlockRef.setReference(imageRef);
+            if (imageURL.equals("http://www.google.com/chart")) {
+              // We have an image that lead to a google chart.
+              // The XWiki equivalent is the tree macro with root to the current page.
+              addDebug("Found tree macro block");
+              Block parentBlock = image.getParent();
+              def rootDocument = "document:" + context.getDatabase() + ":" + wikiPageName
+              def newXdom = renderingService.parse("{{documentTree root='" + rootDocument + "'/}}", "xwiki/2.1")
+              parentBlock.replaceChild(newXdom, image)
+            }
+            else {
+              // We manage it as an image
+              def imageRef = attachments.get(imageURL);
+              addDebug("Found image block: " + imageURL + " -&gt; " + imageRef);
+              if (imageRef!=null) {
+                imageBlockRef.setType(ResourceType.ATTACHMENT);
+                imageBlockRef.setReference(imageRef);
+              }
             }
          }
          for (link in xdomBlock.getBlocks(new ClassBlockMatcher(LinkBlock.class), Block.Axes.DESCENDANT)) {
@@ -426,17 +441,24 @@ def getFlow() {
               } else {
                addDebug("Found link block: " + linkURL + " -&gt; " + linkRef);
              }
-            }
+           }
          }
        }
 
        def wikisyntax = renderingService.render(xdomBlock, "xwiki/2.1");
-       // addDebug("WikiSyntax: {{{" + wikisyntax + "}}}")
 
        if (wikisyntax==null) {
          addDebug("ERROR: generating wikisyntax for page ${wikiPageName}")
          return """{{html clean="false"}}${html2}{{/html}}"""
        } 
+       else {
+         // Remove possible new line element from xwiki syntax 1.0 set after a macro
+         wikisyntax = wikisyntax.replace("}}\\\\", "}}")
+       }
+
+      // Display Root Html in the imported document for debug
+      // wikisyntax += "{{code}} " + roothtml + "{{/code}}"
+ 
        return wikisyntax;
       
     }
@@ -458,10 +480,13 @@ def getFlow() {
    public getSites() {
      def service = getSitesService();
      def list = new ArrayList();
-     if (service==null)
+     if (service==null) {
         return null;
-     def siteFeedURL = "https://sites.google.com/feeds/site/${DOMAIN}/";
+     }
+     def siteFeedURL = "https://sites.google.com/feeds/site/${DOMAIN}";
+     println siteFeedURL ;
      def siteFeed = service.getFeed(new URL(siteFeedURL), SiteFeed.class);
+     println siteFeed ;
      return siteFeed.getEntries()
    }
 
@@ -522,9 +547,24 @@ def getFlow() {
          break;
       }
       return entries;
-   }
+  }
 
-   public getEntry(site, kind, id) {
+  public getAsListPageEntry(entry) {
+    def listPageEntry = new ListPageEntry(entry) ;
+    return listPageEntry
+  }
+
+  public getAsListItemEntry(entry) {
+    def listPageEntry = new ListItemEntry(entry) ;
+    return listPageEntry
+  }
+
+  public getAsFileCabinetEntry(entry) {
+    def fileCabinetEntry = new FileCabinetPageEntry(entry) ;
+    return fileCabinetEntry
+  }
+
+  public getEntry(site, kind, id) {
     def service = getSitesService();
     def contentFeedURL = "https://sites.google.com/feeds/content/${DOMAIN}/${site}/"
     contentFeedURL += "?path=/";
@@ -534,52 +574,87 @@ def getFlow() {
     return currentEntries;
   }  
   
-   def getNextPageName(entry, pagenames, space) {
-      def startWikiPageName = "";
-      try {
-       startWikiPageName = space + "." + entry.getExtension(PageName.class).getValue()
-      } catch(e) {
-       addDebug("Cannot get page name for entry ${entry.id}")
-       return "";
-      }
-      def counter = 0;
-      def wikiPageName = startWikiPageName;
-      while (pagenames.contains(wikiPageName)) {
-        counter++;
-        wikiPageName = startWikiPageName + "_${counter}";
-      }
-      pagenames.add(wikiPageName);
-      return wikiPageName;
-   }
+  def getNextPageName(entry, pagenames, space) {
+    def startWikiPageName = "";
+    try {
+      def googlePageName = entry.getExtension(PageName.class).getValue()
+      // Set googlesite home page as the XWiki space WebHome document
+      startWikiPageName = (googlePageName == "home") ? space + ".WebHome" : space + "." + googlePageName
+    } catch(e) {
+      addDebug("Cannot get page name for entry ${entry.id}")
+      return "";
+    }
+    def counter = 0;
+    def wikiPageName = startWikiPageName;
+    while (pagenames.contains(wikiPageName)) {
+      counter++;
+      wikiPageName = startWikiPageName + "-${counter}";
+    }
+    pagenames.add(wikiPageName);
+    return wikiPageName;
+  }
 
       
    def importPage(entry, wikiPageName, pages, space, attachments, pagesByUrl) {
     try {
       def html = getContentBlob(entry);
       def wikisyntax = getWikiSyntax(html, wikiPageName, space, attachments, pagesByUrl);
-      def pageDoc = xwiki.getDocument(wikiPageName);
-      def parentLink = entry.getLink("http://schemas.google.com/sites/2008#parent", null);
-      def parentURL = (parentLink==null) ? null : parentLink.getHref();
-      def parentName = (parentURL==null) ? "${space}.WebHome" : pages.get(parentURL)
-      if (parentName==null &amp;&amp; parentURL!=null) {
-         parentName = parentURL.substring(parentURL.lastIndexOf("/") + 1);
+      def pageDoc =  xwiki.getDocument(wikiPageName);
+      def parentName = ""
+      // Set Wiki Welcome page as space's WebHome parent
+      if(wikiPageName.equals(space + ".WebHome")) {
+        parentName = "Main.WebHome"
       }
-      pageDoc.setTitle(entry.getTitle().getPlainText());
+      else {
+        def parentLink = entry.getLink("http://schemas.google.com/sites/2008#parent", null);
+        def parentURL = (parentLink==null) ? null : parentLink.getHref();
+        parentName = (parentURL==null) ? "${space}.WebHome" : pages.get(parentURL)
+        if (parentName==null &amp;&amp; parentURL!=null) {
+           parentName = parentURL.substring(parentURL.lastIndexOf("/") + 1);
+        }
+      }
+      // Set document creator
+      def authorName = "undefined";
+      def authorEMail = entry.getAuthors().get(0).getEmail()
+      if (authorEMail != null &amp;&amp; !authorEMail.isEmpty() &amp;&amp; !authorEMail.trim().isEmpty()) {
+        // Remove domain from the email account
+        // TODO : replace all special character that can't be used in XWiki user name
+        //        The rules must be the same as used for Google SSO.
+        // TODO : Manage local users.
+        authorName = "xwiki:XWiki." + authorEMail.split("@")[0].replace(".", "")
+      }
+      // Set pretty name for WebHome, Specific for a project, should be improved or gave up
+      if (wikiPageName == "${space}.WebHome" &amp;&amp; request.site != null) {
+        def homePageTitle = request.site.replace("-"," ").toLowerCase().tokenize().collect { it.capitalize() }.join(' ')
+        pageDoc.setTitle(homePageTitle)
+      }
+      else {
+        pageDoc.setTitle(entry.getTitle().getPlainText());
+      }
       pageDoc.setContent(wikisyntax);
-      pageDoc.setParent((parentName==null || parentName.equals("")) ? "Doc.WebHome" : parentName);
-      addDebug("Ready to import " + entry.getTitle().getPlainText() + " in " + wikiPageName + " with parent " + parentName);
+      // Set space WebHome as parent if parent is empty
+      pageDoc.setParent((parentName==null || parentName.equals("")) ? space + ".WebHome" : parentName);
+      addDebug("Ready to import " + entry.getTitle().getPlainText() + " in " + wikiPageName + " with parent " + parentName + " and author " + authorName);
       if (request.confirm=="2") {
        pageDoc.save("Imported document from Google Sites"); 
        addDebug("Page created: [[${pageDoc.fullName}]]");
+       // The document needs to be already created to set the creator
+       if (!authorName.equals("undefined")) {
+         def authorReference = xwiki.getDocument(authorName).getDocumentReference()
+         pageDoc.getDocument().setCreatorReference(authorReference)
+         pageDoc.save("Set creator from Google Sites"); 
+       }
       }
       if (wikisyntax.startsWith("{" + "{" + "html")) {
         addImportedObject([ "entry" : entry, "wikiPageName" : wikiPageName], "failedHtmlPages");
+        addDebug("Failed HTML Page : " + wikiPageName)
       } else {
         addImportedObject([ "entry" : entry, "wikiPageName" : wikiPageName], "importedPages");
       }
     } catch(e) {
       addDebug("Failed to import " + entry.getId() + " in " + wikiPageName + ": " + e.getMessage());
-      addImportedObject([ "entry" : entry, "wikiPageName" : wikiPageName], "failedPages", "exception" : e);
+      // addImportedObject([ "entry" : entry, "wikiPageName" : wikiPageName], "failedPages", "exception" : e);
+      addImportedObject([ "entry" : entry, "wikiPageName" : wikiPageName], "failedPages");
     }
    }
 
@@ -649,7 +724,6 @@ def getFlow() {
     return 0;
    }
 
-
     public importPage(site, space, entryId) {
      def attachments = getAttachments(site, space);
      def entries = getWebPageEntries(site, 1, MAX);
@@ -670,12 +744,17 @@ def getFlow() {
       def attachments = new HashMap();
       def pages = getPages(site, space)
       for (entry in getAttachmentEntries(site, 1, MAX)) {
-         def url = entry.getLink("alternate", null).getHref()
-         def filename = entry.getTitle().getPlainText();
-         def parentURL = entry.getLink("http://schemas.google.com/sites/2008#parent", null).getHref()
-         def parentPage = pages.get(parentURL)
-         def pageDoc = xwiki.getDocument(parentPage)
-         attachments.put(url, parentPage + "@" + filename);
+        def url = entry.getLink("alternate", null).getHref()
+        def filename = entry.getTitle().getPlainText();
+        def parentLink = entry.getLink("http://schemas.google.com/sites/2008#parent", null)
+        def parentURL = (parentLink==null) ? null : parentLink.getHref()
+        addDebug("getAttachments - parentURL : " + parentURL)
+        def parentName = (parentURL==null) ? "${space}.WebHome" : pages.get(parentURL)
+        addDebug("getAttachments - parentName : " + parentName)
+        if (parentName==null &amp;&amp; parentURL!=null) {
+          parentName = parentURL.substring(parentURL.lastIndexOf("/") + 1);
+        }
+        attachments.put(url, parentName + "@" + filename);
       }
       addDebug("Added Attachments: " + attachments.size())
       return attachments;
@@ -706,9 +785,15 @@ def getFlow() {
          counter++;
          def url = entry.getLink("alternate", null).getHref()
          filename = entry.getTitle().getPlainText();
-         def parentURL = entry.getLink("http://schemas.google.com/sites/2008#parent", null).getHref()
-         parentPage = pages.get(parentURL)
-         def pageDoc = xwiki.getDocument(parentPage)
+         def parentLink = entry.getLink("http://schemas.google.com/sites/2008#parent", null)
+         def parentURL = (parentLink==null) ? null : parentLink.getHref()
+         addDebug("importAttachments - parentURL : " + parentURL)
+         def parentName = (parentURL==null) ? "${space}.WebHome" : pages.get(parentURL)
+         addDebug("importAttachments - parentName : " + parentName)
+         if (parentName==null &amp;&amp; parentURL!=null) {
+           parentName = parentURL.substring(parentURL.lastIndexOf("/") + 1);
+         }
+         def pageDoc = xwiki.getDocument(parentName)
          if (parentPage==null || pageDoc.isNew()) {
            addDebug("Missing page for attachment: ${parentPage} ${pageDoc.isNew()} ${parentURL} ${filename} ${url}")
            addImportedObject([ "entry" : entry, "wikiPageName" : parentPage, "filename" : filename], "missingPageAttachments");
@@ -716,6 +801,11 @@ def getFlow() {
            def data = getAttachmentBlob(entry);
            addDebug("Attachment content: " + data.length);
            def attach = pageDoc.getAttachment(filename);
+           /*
+            if(data.length &gt; 15728640 ) {
+              throw new Exception("Too big File")
+            }
+            */
            if (attach==null) {
                 pageDoc.addAttachment(filename, data);
                 pageDoc.save("Added attachment ${filename}")
