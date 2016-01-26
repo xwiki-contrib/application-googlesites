@@ -26,12 +26,21 @@
 #set($import = $xwiki.parseGroovyFromPage("GoogleSites.Groovy"))
 #set($ok = $import.init($xwiki, $xcontext, $doc))
 #if($request.site)
+  ## Load all entries from start and set them in a map where
+  ## the key is the document's kind
+  ## the value is the google site entries list
+  #set($entriesMap = {})
+  #set($allKindList = ["attachment", "webpage", "webattachment","announcement", "announcementspage", "comment", 
+                     "filecabinet", "listitem", "listpage"])
+  #foreach($kind in $!{allKindList})
+    #set($discard = $entriesMap.put($kind, $import.getEntries($request.site, $kind, $xwiki.null, 1, 1000)))
+  #end
 == Importable Items ==
 
 |= Item Type |= Number of items
   #set($list = ["attachment", "webpage", "webattachment"])
   #foreach($kind in $list)
-| [[$kind&gt;&gt;||queryString="site=${request.site}&amp;kind=${kind}"]] | $import.getEntries($request.site, $kind, $xwiki.null, 1, 1000).size()
+| [[$kind&gt;&gt;||queryString="site=${request.site}&amp;kind=${kind}"]] | $entriesMap.get($kind).size()
   #end 
   
 == Non-importable items ==  
@@ -40,7 +49,7 @@
   #set($list = ["announcement", "announcementspage", "comment", 
                      "filecabinet", "listitem", "listpage"])
   #foreach($kind in $list)
-| [[$kind&gt;&gt;||queryString="site=${request.site}&amp;kind=${kind}"]] | $import.getEntries($request.site, $kind, $xwiki.null, 0, 1000).size()
+| [[$kind&gt;&gt;||queryString="site=${request.site}&amp;kind=${kind}"]] | $entriesMap.get($kind).size()
   #end 
 
 #if($request.kind)
@@ -48,10 +57,10 @@
   
   ## Called before to avoid loading it each try of the foreach
   #if($request.kind == "listpage")
-    #set($listItemEntries = $import.getEntries($request.site, "listitem", $xwiki.null, 1, 1000))
+    #set($listItemEntries = $entriesMap.get("listitem"))
   #end
   ##
-  #foreach($entry in $import.getEntries($request.site, $request.kind, $xwiki.null, 1, 1000))
+  #foreach($entry in $entriesMap.get($request.kind))
     ## ##
     #if($request.kind == "listpage")
       #set($listPageEntry = $import.getAsListPageEntry($entry))
