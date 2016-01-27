@@ -385,8 +385,21 @@ def getFlow() {
        def renderingService = Utils.getComponent(ScriptService.class, 'rendering')
        def xdomBlock = renderingService.parse(html2, "xhtml/1.0")
 
-       // find all links and images
+       // find specific elements
        if (xdomBlock!=null) {
+         // Table of content
+         xdomBlock.getBlocks(new BlockMatcher() {
+            @Override
+            public boolean match(Block block)
+            {
+                return block instanceof GroupBlock &amp;&amp;  block.parameters.get("class")?.contains("sites-embed-type-toc");
+            }
+          }, Block.Axes.DESCENDANT).each{
+            addDebug("Found Table of Content");
+            def newXdom = renderingService.parse("{{toc numbered=true start=2 /}}", "xwiki/2.1")
+            it.getParent().replaceChild(newXdom, it) 
+          }
+         // Images
          for (image in xdomBlock.getBlocks(new ClassBlockMatcher(ImageBlock.class), Block.Axes.DESCENDANT)) {
             def imageBlockRef = image.getReference();
             def imageURL = imageBlockRef.getReference();
@@ -416,6 +429,7 @@ def getFlow() {
               }
             }
          }
+         // Links
          for (link in xdomBlock.getBlocks(new ClassBlockMatcher(LinkBlock.class), Block.Axes.DESCENDANT)) {
             def linkBlockRef = link.getReference();
             def linkURL = linkBlockRef.getReference();
