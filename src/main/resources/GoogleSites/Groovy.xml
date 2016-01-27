@@ -53,7 +53,7 @@ import org.xwiki.rendering.listener.reference.ResourceType;
   
 
 public class GoogleSites {
-    def MAX = 1000;
+    def MAX = 2000;
 
     def xwiki;
     def context;
@@ -527,8 +527,9 @@ def getFlow() {
 
       while (true) {
        def contentFeedURL = "https://sites.google.com/feeds/content/${DOMAIN}/${site}/?";
-       if (kind!="")
-        contentFeedURL += "&amp;kind=${kind}"
+       // this is not reliable. There must be pages not having this parameter set
+       // if (kind!="" &amp;&amp; kind!="webpage" &amp;&amp; kind!="attachment")
+       // contentFeedURL += "&amp;kind=${kind}"
        if (currentStart&gt;0)
         contentFeedURL += "&amp;start-index=${currentStart}"
        if (max&gt;MAX) 
@@ -536,17 +537,74 @@ def getFlow() {
        else if (max&gt;0)
         contentFeedURL += "&amp;max-results=${max}"
 
-       addDebug("URL for ${kind}: {{{ ${contentFeedURL} }}}");
+       addDebug("URL for ${kind}: {{{ ${contentFeedURL} }}}");
        def contentFeed = service.getFeed(new URL(contentFeedURL), ContentFeed.class);
        addDebug("Getting entry of class ${clazz}")
        currentEntries = (clazz!=null) ? contentFeed.getEntries(clazz) : contentFeed.getEntries();
-       entries.addAll(currentEntries)
+       // now we check if the page has the right kind entry in the categories.
+       for (entry in currentEntries) {
+         for (category in entry.getCategories()) {
+          if (category.getTerm().endsWith("#" + kind)) {
+           entries.add(entry)
+           continue;
+          }
+         }
+       }
        currentStart += currentEntries.size();
        addDebug("Added " + currentEntries.size() + " entries")
        if ((currentEntries.size()==0) || (entries.size() &gt; max))
          break;
       }
       return entries;
+  }
+
+  public getAllEntries(site) {
+    return getAllEntries(site, 1, MAX);
+  }
+  
+  public getAllEntries(site, start, max) {
+    def currentStart = start;
+    if (currentStart==0)
+     currentStart = 1;
+    def entries = new ArrayList();
+    def entriesCount = 0;
+    def currentEntries = null;
+    def service = getSitesService();
+    def foundCategories = [];
+    // kind possible values are announcement, announcementspage, attachment, comment, filecabinet, listitem, listpage, webpage, webattachment, template.
+    def allEntriesMap = [ "announcement" : [], "announcementspage" : [], "attachment" : [], "comment" : [], "filecabinet" : [], "listitem" : [], "listpage" : [], "webpage" : [], "webattachment" : [], "template" : [] ];
+    if (service==null)
+      return null;
+    addDebug("getAllEntries: site: ${site} start: ${start} max: ${max}")
+    while (true) {
+      def contentFeedURL = "https://sites.google.com/feeds/content/${DOMAIN}/${site}/?";
+      if (currentStart&gt;0)
+       contentFeedURL += "&amp;start-index=${currentStart}"
+      if (max&gt;MAX) 
+       contentFeedURL += "&amp;max-results=${MAX}"
+      else if (max&gt;0)
+       contentFeedURL += "&amp;max-results=${max}"
+      // get entries
+      addDebug("Get feed from : {{{ ${contentFeedURL} }}}");
+      def contentFeed = service.getFeed(new URL(contentFeedURL), ContentFeed.class);
+      currentEntries = contentFeed.getEntries();
+      // now we check if the page has the right kind entry in the categories.
+      for (entry in currentEntries) {
+        for (category in entry.getCategories()) {
+          def categoryName = category.getTerm().substring(category.getTerm().lastIndexOf("#") + 1)
+          if(allEntriesMap.get(categoryName) != null) {
+            allEntriesMap.get(categoryName).add(entry)
+            entriesCount++
+            continue;
+          }
+        }
+      }
+      currentStart += currentEntries.size();
+      addDebug("Added " + currentEntries.size() + " entries")
+      if ((currentEntries.size()==0) || (entriesCount &gt; max))
+        break;
+    }
+    return allEntriesMap
   }
 
   public getAsListPageEntry(entry) {
@@ -564,16 +622,6 @@ def getFlow() {
     return fileCabinetEntry
   }
 
-  public getEntry(site, kind, id) {
-    def service = getSitesService();
-    def contentFeedURL = "https://sites.google.com/feeds/content/${DOMAIN}/${site}/"
-    contentFeedURL += "?path=/";
-    addDebug("URL: " + contentFeedURL)
-    def contentFeed = service.getFeed(new URL(contentFeedURL), ContentFeed.class);
-    def currentEntries = contentFeed.getEntries(CLAZZES[kind]);
-    return currentEntries;
-  }  
-  
   def getNextPageName(entry, pagenames, space) {
     def startWikiPageName = "";
     try {
